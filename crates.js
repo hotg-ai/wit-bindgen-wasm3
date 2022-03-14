@@ -1,0 +1,1 @@
+window.ALL_CRATES = ["wit_bindgen_gen_wasm3","wit_bindgen_wasm3","wit_bindgen_wasm3_impl"];

@@ -7,3 +7,5 @@ description = "Code generation for linking WIT interfaces with a WASM3 host."
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+wit-bindgen-gen-core = { git = "https://github.com/bytecodealliance/wit-bindgen" }
+wit-bindgen-gen-rust = { git = "https://github.com/bytecodealliance/wit-bindgen" }

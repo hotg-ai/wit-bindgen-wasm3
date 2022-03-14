@@ -30,5 +30,5 @@ conditions.
 The intent of this crate is to be free of soundness bugs. The developers will
 do their best to avoid them, and welcome help in analysing and fixing them.
 
-[API Docs]: https://michael-f-bryan.github.io/wit-bindgen-wasm3
+[API Docs]: https://hotg-ai.github.io/wit-bindgen-wasm3
 [crev]: https://github.com/crev-dev/cargo-crev

@@ -1,0 +1,14 @@
+[package]
+name = "wit-bindgen-wasm3"
+version = "0.1.0"
+edition = "2021"
+description = "Runtime support crate for using WIT interfaces from a WASM3 host."
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+wit-bindgen-wasm3-impl = { version = "0.1.0", path = "../macros", optional = true }
+
+[features]
+default = ["macros"]
+macros = ["wit-bindgen-wasm3-impl"]

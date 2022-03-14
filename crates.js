@@ -1,1 +1,1 @@
-window.ALL_CRATES = ["wit_bindgen_gen_wasm3","wit_bindgen_wasm3","wit_bindgen_wasm3_impl"];
+window.ALL_CRATES = ["anyhow","bitflags","heck","id_arena","memchr","pulldown_cmark","tinyvec","tinyvec_macros","unicase","unicode_normalization","unicode_segmentation","unicode_xid","wit_bindgen_gen_core","wit_bindgen_gen_rust","wit_bindgen_gen_wasm3","wit_bindgen_wasm3","wit_bindgen_wasm3_impl","wit_parser"];

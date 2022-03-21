@@ -16,13 +16,18 @@ fn single_function() {
     let single_function = Interface::parse_file(&path).unwrap();
     let mut files = Files::default();
 
-    Opts::default()
-        .build()
-        .generate_all(&[single_function], &[], &mut files);
+    Opts {
+        rustfmt: true,
+        ..Default::default()
+    }
+    .build()
+    .generate_all(&[single_function], &[], &mut files);
 
     let files: HashMap<_, _> = files.iter().collect();
     assert_eq!(files.len(), 1);
     let generated = std::str::from_utf8(files["bindings.rs"]).unwrap();
-    println!("=========\n{}=======", generated);
-    assert_eq!(generated, "asd");
+    assert_eq!(
+        generated,
+        include_str!("./data/single-function.generated.rs")
+    );
 }

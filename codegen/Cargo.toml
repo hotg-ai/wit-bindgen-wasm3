@@ -11,3 +11,6 @@ heck = "0.3"
 structopt = { version = "0.3", default-features = false, optional = true }
 wit-bindgen-gen-core = { git = "https://github.com/bytecodealliance/wit-bindgen" }
 wit-bindgen-gen-rust = { git = "https://github.com/bytecodealliance/wit-bindgen" }
+
+[dev-dependencies]
+pretty_assertions = "1.2.0"

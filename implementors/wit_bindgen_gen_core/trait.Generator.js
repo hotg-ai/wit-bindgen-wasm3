@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["wit_bindgen_gen_wasm3"] = [{"text":"impl <a class=\"trait\" href=\"wit_bindgen_gen_core/trait.Generator.html\" title=\"trait wit_bindgen_gen_core::Generator\">Generator</a> for <a class=\"struct\" href=\"wit_bindgen_gen_wasm3/struct.Wasmtime.html\" title=\"struct wit_bindgen_gen_wasm3::Wasmtime\">Wasmtime</a>","synthetic":false,"types":["wit_bindgen_gen_wasm3::Wasmtime"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

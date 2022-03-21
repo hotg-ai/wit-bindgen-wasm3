@@ -1,1 +1,1 @@
-initSidebarItems({});
+initSidebarItems({"enum":[["Async",""]],"struct":[["Opts",""],["Wasmtime",""]]});

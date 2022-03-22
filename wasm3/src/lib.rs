@@ -1,8 +1,7 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
+#[cfg(features = "macros")]
+pub use wit_bindgen_wasm3_macros::{export, import};
+
+#[cfg(features = "macros")]
+pub mod _internal {
+    pub use ::anyhow;
 }

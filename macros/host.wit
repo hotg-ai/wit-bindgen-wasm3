@@ -1,0 +1,6 @@
+resource context {
+    static new: function() -> context
+    env: function(name: string) -> option<string>
+}
+
+print: function(msg: string)

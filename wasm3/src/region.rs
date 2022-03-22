@@ -1,10 +1,10 @@
 use crate::rt::RawMem;
+use crate::Trap;
 use crate::{Endian, GuestError, Le};
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::marker;
 use std::mem;
-use wasmtime::Trap;
 
 // This is a pretty naive way to account for borrows. This datastructure
 // could be made a lot more efficient with some effort.

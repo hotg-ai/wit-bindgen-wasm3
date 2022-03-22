@@ -3,7 +3,7 @@ use std::{fmt::Display, path::Path};
 use proc_macro::{Span, TokenStream};
 use syn::{Error, LitStr};
 use wit_bindgen_gen_core::{wit_parser::Interface, Direction, Files, Generator};
-use wit_bindgen_gen_wasm3::Wasmtime;
+use wit_bindgen_gen_wasm3::Wasm3;
 
 /// Use functions defined by a WebAssembly module.
 ///
@@ -90,7 +90,7 @@ fn run(input: &LitStr, direction: Direction) -> Result<TokenStream, Error> {
 
     let mut files = Files::default();
 
-    Wasmtime::default().generate_one(&interface, direction, &mut files);
+    Wasm3::default().generate_one(&interface, direction, &mut files);
 
     let (_filename, contents) = files
         .iter()

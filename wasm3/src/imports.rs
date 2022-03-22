@@ -1,9 +1,9 @@
-use crate::slab::Slab;
-use std::cell::RefCell;
-use std::convert::TryFrom;
-use std::mem;
-use std::rc::Rc;
-use wasmtime::{Memory, Trap};
+use wasm3::CallContext;
+
+use crate::{slab::Slab, Trap};
+use std::{cell::RefCell, convert::TryFrom, mem, rc::Rc};
+
+type Memory = [u8];
 
 #[derive(Default, Clone)]
 pub struct BufferGlue {
@@ -60,8 +60,7 @@ impl BufferGlue {
     pub fn in_read(
         &self,
         handle: u32,
-        store: impl wasmtime::AsContextMut,
-        memory: &wasmtime::Memory,
+        cc: &CallContext<'_>,
         base: u32,
         len: u32,
     ) -> Result<(), Trap> {
@@ -79,13 +78,13 @@ impl BufferGlue {
             match &mut b.kind {
                 Input::Bytes(ptr, elem_size) => {
                     let write_size = (len as usize) * *elem_size;
+                    let memory = &mut *cc.memory_mut();
+                    let base = base as usize;
+                    let end = base + write_size;
                     memory
-                        .write(
-                            store,
-                            base as usize,
-                            std::slice::from_raw_parts(*ptr, write_size),
-                        )
-                        .map_err(|_| Trap::new("out-of-bounds write while reading in-buffer"))?;
+                        .get_mut(base..end)
+                        .ok_or_else(|| Trap::new("out-of-bounds write while reading in-buffer"))?
+                        .copy_from_slice(std::slice::from_raw_parts(*ptr, write_size));
                     *ptr = (*ptr).add(write_size);
                     b.len -= len;
                     Ok(())
@@ -97,6 +96,7 @@ impl BufferGlue {
                 } => {
                     drop(inner);
                     let mut processed = 0;
+                    let memory = &*cc.memory_mut();
                     let res = shim(
                         iterator,
                         serialize,
@@ -130,8 +130,7 @@ impl BufferGlue {
     pub fn out_write(
         &self,
         handle: u32,
-        store: impl wasmtime::AsContext,
-        memory: &wasmtime::Memory,
+        cc: &CallContext<'_>,
         base: u32,
         len: u32,
     ) -> Result<(), Trap> {
@@ -149,13 +148,13 @@ impl BufferGlue {
             match &mut b.kind {
                 Output::Bytes(ptr, elem_size) => {
                     let read_size = (len as usize) * *elem_size;
-                    memory
-                        .read(
-                            &store,
-                            base as usize,
-                            std::slice::from_raw_parts_mut(*ptr, read_size),
-                        )
-                        .map_err(|_| Trap::new("out-of-bounds read while writing to out-buffer"))?;
+                    let base = base as usize;
+                    let end = base + read_size;
+                    let memory = &*cc.memory();
+                    let data = memory.get(base..end).ok_or_else(|| {
+                        Trap::new("out-of-bounds read while writing to out-buffer")
+                    })?;
+                    std::slice::from_raw_parts_mut(*ptr, read_size).copy_from_slice(data);
                     *ptr = (*ptr).add(read_size);
                     b.len -= len;
                     Ok(())
@@ -165,6 +164,7 @@ impl BufferGlue {
                     dst,
                     deserialize,
                 } => {
+                    let memory = &*cc.memory();
                     shim(dst, deserialize, memory, base as i32, len)?;
                     b.len -= len;
                     Ok(())

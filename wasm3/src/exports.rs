@@ -1,7 +1,7 @@
 use crate::BorrowChecker;
+use crate::Trap;
 use std::fmt;
 use std::mem;
-use wasmtime::Trap;
 
 pub struct PullBuffer<'a, T> {
     mem: &'a [u8],

@@ -28,12 +28,29 @@ pub struct RawMemory {
 unsafe impl Send for RawMemory {}
 unsafe impl Sync for RawMemory {}
 
+#[derive(Debug)]
+pub struct Trap(Box<dyn std::error::Error + Send + Sync + 'static>);
+
+impl Trap {
+    pub fn new(s: impl Into<String>) -> Self {
+        Trap::from(s.into())
+    }
+}
+
+impl<E> From<E> for Trap
+where
+    E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+{
+    fn from(e: E) -> Trap {
+        Trap(e.into())
+    }
+}
+
 #[doc(hidden)]
 pub mod rt {
     pub use {anyhow, bitflags, wasm3};
 
-    use crate::slab::Slab;
-    use crate::{Endian, Le};
+    use crate::{slab::Slab, Endian, Le, Trap};
     use std::mem;
     use wasm3::*;
 
@@ -99,34 +116,23 @@ pub mod rt {
         }
     }
 
-    pub fn get_func<T>(caller: &mut Caller<'_, T>, func: &str) -> Result<Func, wasmtime::Trap> {
-        let func = caller
-            .get_export(func)
-            .ok_or_else(|| {
-                let msg = format!("`{}` export not available", func);
-                Trap::new(msg)
-            })?
-            .into_func()
-            .ok_or_else(|| {
-                let msg = format!("`{}` export not a function", func);
-                Trap::new(msg)
-            })?;
+    pub fn get_func<'rt, Args, Ret>(
+        runtime: &'rt Runtime,
+        func: &str,
+    ) -> Result<Function<'rt, Args, Ret>, Trap>
+    where
+        Ret: WasmType,
+        Args: WasmArgs,
+    {
+        let func = runtime.find_function(func).map_err(|_| {
+            let msg = format!("`{}` export not available", func);
+            Trap::new(msg)
+        })?;
         Ok(func)
     }
 
-    pub fn get_memory<T>(caller: &mut Caller<'_, T>, mem: &str) -> Result<Memory, wasmtime::Trap> {
-        let mem = caller
-            .get_export(mem)
-            .ok_or_else(|| {
-                let msg = format!("`{}` export not available", mem);
-                Trap::new(msg)
-            })?
-            .into_memory()
-            .ok_or_else(|| {
-                let msg = format!("`{}` export not a memory", mem);
-                Trap::new(msg)
-            })?;
-        Ok(mem)
+    pub fn get_memory<'cc>(cc: &'cc CallContext<'cc>, _mem: &str) -> Result<&'cc [u8], Trap> {
+        Ok(unsafe { &*cc.memory() })
     }
 
     pub fn bad_int(_: std::num::TryFromIntError) -> Trap {
@@ -135,19 +141,19 @@ pub mod rt {
     }
 
     pub fn copy_slice<T: Endian>(
-        store: impl AsContextMut,
-        memory: &Memory,
+        cc: &CallContext<'_>,
         base: i32,
         len: i32,
-        align: i32,
+        _align: i32,
     ) -> Result<Vec<T>, Trap> {
         let size = (len as u32)
             .checked_mul(mem::size_of::<T>() as u32)
             .ok_or_else(|| Trap::new("array too large to fit in wasm memory"))?;
-        let slice = memory
-            .data(&store)
-            .get(base as usize..)
-            .and_then(|s| s.get(..size as usize))
+        let base = base as usize;
+        let size = size as usize;
+        let slice = unsafe { &*cc.memory() };
+        let slice = slice
+            .get(base..base + size)
             .ok_or_else(|| Trap::new("out of bounds read"))?;
         Ok(Le::from_slice(slice).iter().map(|s| s.get()).collect())
     }

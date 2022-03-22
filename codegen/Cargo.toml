@@ -14,3 +14,4 @@ wit-bindgen-gen-rust = { git = "https://github.com/bytecodealliance/wit-bindgen"
 
 [dev-dependencies]
 pretty_assertions = "1.2.0"
+structopt = "0.3"

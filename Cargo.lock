@@ -469,6 +469,7 @@ dependencies = [
  "wasm3",
  "wit-bindgen-gen-core",
  "wit-bindgen-gen-wasm3",
+ "wit-bindgen-wasm3",
 ]
 
 [[package]]

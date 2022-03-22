@@ -1,7 +1,5 @@
 pub use wit_bindgen_wasm3_macros::{export, import};
 
-#[cfg(feature = "async")]
-pub use async_trait::async_trait;
 #[cfg(feature = "tracing-lib")]
 pub use tracing_lib as tracing;
 

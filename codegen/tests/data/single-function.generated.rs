@@ -1,6 +1,6 @@
 pub mod single_function {
     #[allow(unused_imports)]
-    use wit_bindgen_wasmtime::{anyhow, wasmtime};
+    use wit_bindgen_wasm3::{anyhow, wasmtime};
 
     /// Auxiliary data associated with the wasm exports.
     ///

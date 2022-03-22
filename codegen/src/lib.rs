@@ -116,26 +116,26 @@ impl Wasm3 {
 
     fn print_intrinsics(&mut self) {
         if self.needs_raw_mem {
-            self.push_str("use wit_bindgen_wasmtime::rt::RawMem;\n");
+            self.push_str("use wit_bindgen_wasm3::rt::RawMem;\n");
         }
         if self.needs_char_from_i32 {
-            self.push_str("use wit_bindgen_wasmtime::rt::char_from_i32;\n");
+            self.push_str("use wit_bindgen_wasm3::rt::char_from_i32;\n");
         }
         if self.needs_invalid_variant {
-            self.push_str("use wit_bindgen_wasmtime::rt::invalid_variant;\n");
+            self.push_str("use wit_bindgen_wasm3::rt::invalid_variant;\n");
         }
         if self.needs_bad_int {
             self.push_str("use core::convert::TryFrom;\n");
-            self.push_str("use wit_bindgen_wasmtime::rt::bad_int;\n");
+            self.push_str("use wit_bindgen_wasm3::rt::bad_int;\n");
         }
         if self.needs_validate_flags {
-            self.push_str("use wit_bindgen_wasmtime::rt::validate_flags;\n");
+            self.push_str("use wit_bindgen_wasm3::rt::validate_flags;\n");
         }
         if self.needs_le {
-            self.push_str("use wit_bindgen_wasmtime::Le;\n");
+            self.push_str("use wit_bindgen_wasm3::Le;\n");
         }
         if self.needs_copy_slice {
-            self.push_str("use wit_bindgen_wasmtime::rt::copy_slice;\n");
+            self.push_str("use wit_bindgen_wasm3::rt::copy_slice;\n");
         }
     }
 
@@ -282,7 +282,7 @@ impl RustGenerator for Wasm3 {
                 self.push_str(" mut ");
             }
             self.push_str(&format!(
-                "wit_bindgen_wasmtime::exports::{}Buffer<{}, ",
+                "wit_bindgen_wasm3::exports::{}Buffer<{}, ",
                 if push { "Push" } else { "Pull" },
                 lt,
             ));
@@ -327,7 +327,7 @@ impl Generator for Wasm3 {
         self.src
             .push_str(&format!("pub mod {} {{\n", iface.name.to_snake_case()));
         self.src
-            .push_str("#[allow(unused_imports)]\nuse wit_bindgen_wasmtime::{wasmtime, anyhow};\n");
+            .push_str("#[allow(unused_imports)]\nuse wit_bindgen_wasm3::rt::{wasm3, anyhow};\n");
         self.sizes.fill(variant, iface);
     }
 
@@ -341,7 +341,7 @@ impl Generator for Wasm3 {
     ) {
         if record.is_flags() {
             self.src
-                .push_str("wit_bindgen_wasmtime::bitflags::bitflags! {\n");
+                .push_str("wit_bindgen_wasm3::rt::bitflags::bitflags! {\n");
             self.rustdoc(docs);
             self.src
                 .push_str(&format!("pub struct {}: ", name.to_camel_case()));
@@ -391,7 +391,7 @@ impl Generator for Wasm3 {
             && record.fields.iter().all(|f| iface.all_bits_valid(&f.ty))
             && !record.is_tuple()
         {
-            self.src.push_str("impl wit_bindgen_wasmtime::Endian for ");
+            self.src.push_str("impl wit_bindgen_wasm3::Endian for ");
             self.src.push_str(&name.to_camel_case());
             self.src.push_str(" {\n");
 
@@ -423,7 +423,7 @@ impl Generator for Wasm3 {
             // byte representations are valid (guarded by the `all_bits_valid`
             // predicate).
             self.src
-                .push_str("unsafe impl wit_bindgen_wasmtime::AllBytesValid for ");
+                .push_str("unsafe impl wit_bindgen_wasm3::AllBytesValid for ");
             self.src.push_str(&name.to_camel_case());
             self.src.push_str(" {}\n");
         }
@@ -458,7 +458,7 @@ impl Generator for Wasm3 {
         self.rustdoc(&iface.resources[ty].docs);
         self.src.push_str("#[derive(Debug)]\n");
         self.src.push_str(&format!(
-            "pub struct {}(wit_bindgen_wasmtime::rt::ResourceIndex);\n",
+            "pub struct {}(wit_bindgen_wasm3::rt::ResourceIndex);\n",
             tyname
         ));
     }
@@ -575,7 +575,7 @@ impl Generator for Wasm3 {
         // Generate the signature this function will have in the final trait
         let mut self_arg = "&mut self".to_string();
         if func_takes_all_memory {
-            self_arg.push_str(", mem: wit_bindgen_wasmtime::RawMemory");
+            self_arg.push_str(", mem: wit_bindgen_wasm3::RawMemory");
         }
         self.in_trait = true;
 
@@ -621,7 +621,7 @@ impl Generator for Wasm3 {
         // Generate the closure that's passed to a `Linker`, the final piece of
         // codegen here.
         self.src
-            .push_str("move |mut caller: wasmtime::Caller<'_, T>");
+            .push_str("move |mut caller: wasm3::CallContext<'_>");
         for (i, param) in sig.params.iter().enumerate() {
             let arg = format!("arg{}", i);
             self.src.push_str(",");
@@ -634,8 +634,8 @@ impl Generator for Wasm3 {
         if self.opts.tracing {
             self.src.push_str(&format!(
                 "
-                    let span = wit_bindgen_wasmtime::tracing::span!(
-                        wit_bindgen_wasmtime::tracing::Level::TRACE,
+                    let span = wit_bindgen_wasm3::tracing::span!(
+                        wit_bindgen_wasm3::tracing::Level::TRACE,
                         \"wit-bindgen abi\",
                         module = \"{}\",
                         function = \"{}\",
@@ -668,7 +668,7 @@ impl Generator for Wasm3 {
         if needs_borrow_checker {
             self.src.push_str(
                 "let (mem, data) = memory.data_and_store_mut(&mut caller);
-                let mut _bc = wit_bindgen_wasmtime::BorrowChecker::new(mem);
+                let mut _bc = wit_bindgen_wasm3::BorrowChecker::new(mem);
                 let host = get(data);\n",
             );
         } else {
@@ -702,11 +702,11 @@ impl Generator for Wasm3 {
         let prev = mem::take(&mut self.src);
 
         let mut sig = FnSig::default();
-        sig.self_arg = Some("&self, mut caller: impl wasmtime::AsContextMut<Data = T>".to_string());
+        sig.self_arg = Some("&self, mut caller: wasm3::Runtime<'_>".to_string());
         self.print_docs_and_params(iface, func, TypeMode::AllBorrowed("'_"), &sig);
         self.push_str("-> Result<");
         self.print_results(iface, func);
-        self.push_str(", wasmtime::Trap> {\n");
+        self.push_str(", wasm3::Trap> {\n");
 
         let is_dtor = self.types.is_preview1_dtor_func(func);
         if is_dtor {
@@ -800,7 +800,7 @@ impl Generator for Wasm3 {
         exports.fields.insert(
             to_rust_ident(&func.name),
             (
-                format!("wasmtime::TypedFunc<{}>", cvt),
+                format!("wasm3::Function<{}>", cvt),
                 format!(
                     "instance.get_typed_func::<{}, _>(&mut store, \"{}\")?",
                     cvt, func.name,
@@ -863,7 +863,7 @@ impl Generator for Wasm3 {
                 for handle in self.all_needed_handles.iter() {
                     self.src.push_str("pub(crate) ");
                     self.src.push_str(&handle.to_snake_case());
-                    self.src.push_str("_table: wit_bindgen_wasmtime::Table<T::");
+                    self.src.push_str("_table: wit_bindgen_wasm3::Table<T::");
                     self.src.push_str(&handle.to_camel_case());
                     self.src.push_str(">,\n");
                 }
@@ -896,10 +896,10 @@ impl Generator for Wasm3 {
             self.push_str(&module_camel);
             self.push_str("\n{\n");
             if self.needs_get_memory {
-                self.push_str("use wit_bindgen_wasmtime::rt::get_memory;\n");
+                self.push_str("use wit_bindgen_wasm3::rt::get_memory;\n");
             }
             if self.needs_get_func {
-                self.push_str("use wit_bindgen_wasmtime::rt::get_func;\n");
+                self.push_str("use wit_bindgen_wasm3::rt::get_func;\n");
             }
             for f in funcs {
                 let method = "func_wrap";
@@ -956,8 +956,8 @@ impl Generator for Wasm3 {
             for r in self.exported_resources.iter() {
                 self.src.push_str(&format!(
                     "
-                        index_slab{}: wit_bindgen_wasmtime::rt::IndexSlab,
-                        resource_slab{0}: wit_bindgen_wasmtime::rt::ResourceSlab,
+                        index_slab{}: wit_bindgen_wasm3::rt::IndexSlab,
+                        resource_slab{0}: wit_bindgen_wasm3::rt::ResourceSlab,
                         dtor{0}: Option<wasmtime::TypedFunc<i32, ()>>,
                     ",
                     r.index()
@@ -979,7 +979,7 @@ impl Generator for Wasm3 {
                 self.push_str(",\n");
             }
             // if self.needs_buffer_glue {
-            //     self.push_str("buffer_glue: wit_bindgen_wasmtime::imports::BufferGlue,");
+            //     self.push_str("buffer_glue: wit_bindgen_wasm3::imports::BufferGlue,");
             // }
             self.push_str("}\n");
             self.push_str(&format!("impl<T> {}<T> {{\n", name));
@@ -1062,9 +1062,9 @@ impl Generator for Wasm3 {
             // if self.needs_buffer_glue {
             //     self.push_str(
             //         "
-            //             use wit_bindgen_wasmtime::rt::get_memory;
+            //             use wit_bindgen_wasm3::rt::get_memory;
 
-            //             let buffer_glue = wit_bindgen_wasmtime::imports::BufferGlue::default();
+            //             let buffer_glue = wit_bindgen_wasm3::imports::BufferGlue::default();
             //             let g = buffer_glue.clone();
             //             linker.func(
             //                 \"wit_canonical_buffer_abi\",
@@ -1382,7 +1382,7 @@ impl FunctionBindgen<'_> {
         let mem = self.memory_src();
         self.gen.needs_raw_mem = true;
         self.push_str(&format!(
-            "{}.store({} + {}, wit_bindgen_wasmtime::rt::{}({}){})?;\n",
+            "{}.store({} + {}, wit_bindgen_wasm3::rt::{}({}){})?;\n",
             mem, operands[1], offset, method, operands[0], extra
         ));
     }
@@ -1490,7 +1490,7 @@ impl Bindgen for FunctionBindgen<'_> {
 
             Instruction::I64FromU64 | Instruction::I64FromS64 => {
                 let s = operands.pop().unwrap();
-                results.push(format!("wit_bindgen_wasmtime::rt::as_i64({})", s));
+                results.push(format!("wit_bindgen_wasm3::rt::as_i64({})", s));
             }
             Instruction::I32FromUsize
             | Instruction::I32FromChar
@@ -1502,7 +1502,7 @@ impl Bindgen for FunctionBindgen<'_> {
             | Instruction::I32FromU32
             | Instruction::I32FromS32 => {
                 let s = operands.pop().unwrap();
-                results.push(format!("wit_bindgen_wasmtime::rt::as_i32({})", s));
+                results.push(format!("wit_bindgen_wasm3::rt::as_i32({})", s));
             }
 
             Instruction::F32FromIf32
@@ -1893,7 +1893,7 @@ impl Bindgen for FunctionBindgen<'_> {
                         self.closures.push_str(&block);
                         self.closures.push_str("; Ok(()) };\n");
                         results.push(format!(
-                            "wit_bindgen_wasmtime::exports::PushBuffer::new(
+                            "wit_bindgen_wasm3::exports::PushBuffer::new(
                                 &mut _bc, ptr{}, len{}, {}, &{})?",
                             tmp, tmp, size, closure
                         ));
@@ -1902,7 +1902,7 @@ impl Bindgen for FunctionBindgen<'_> {
                         self.closures.push_str(&block);
                         self.closures.push_str(") };\n");
                         results.push(format!(
-                            "wit_bindgen_wasmtime::exports::PullBuffer::new(
+                            "wit_bindgen_wasm3::exports::PullBuffer::new(
                                 &mut _bc, ptr{}, len{}, {}, &{})?",
                             tmp, tmp, size, closure
                         ));
@@ -1989,11 +1989,11 @@ impl Bindgen for FunctionBindgen<'_> {
                     self.push_str(&format!("let param{} = {};\n", i, operand));
                 }
                 if self.gen.opts.tracing && func.params.len() > 0 {
-                    self.push_str("wit_bindgen_wasmtime::tracing::event!(\n");
-                    self.push_str("wit_bindgen_wasmtime::tracing::Level::TRACE,\n");
+                    self.push_str("wit_bindgen_wasm3::tracing::event!(\n");
+                    self.push_str("wit_bindgen_wasm3::tracing::Level::TRACE,\n");
                     for (i, (name, _ty)) in func.params.iter().enumerate() {
                         self.push_str(&format!(
-                            "{} = wit_bindgen_wasmtime::tracing::field::debug(&param{}),\n",
+                            "{} = wit_bindgen_wasm3::tracing::field::debug(&param{}),\n",
                             to_rust_ident(name),
                             i
                         ));
@@ -2003,7 +2003,7 @@ impl Bindgen for FunctionBindgen<'_> {
 
                 if self.func_takes_all_memory {
                     let mem = self.memory_src();
-                    self.push_str("let raw_memory = wit_bindgen_wasmtime::RawMemory { slice: ");
+                    self.push_str("let raw_memory = wit_bindgen_wasm3::RawMemory { slice: ");
                     self.push_str(&mem);
                     self.push_str(".raw() };\n");
                 }
@@ -2048,11 +2048,11 @@ impl Bindgen for FunctionBindgen<'_> {
                 self.push_str(";\n");
                 self.after_call = true;
                 if self.gen.opts.tracing && func.results.len() > 0 {
-                    self.push_str("wit_bindgen_wasmtime::tracing::event!(\n");
-                    self.push_str("wit_bindgen_wasmtime::tracing::Level::TRACE,\n");
+                    self.push_str("wit_bindgen_wasm3::tracing::event!(\n");
+                    self.push_str("wit_bindgen_wasm3::tracing::Level::TRACE,\n");
                     for name in results.iter() {
                         self.push_str(&format!(
-                            "{} = wit_bindgen_wasmtime::tracing::field::debug(&{0}),\n",
+                            "{} = wit_bindgen_wasm3::tracing::field::debug(&{0}),\n",
                             name,
                         ));
                     }

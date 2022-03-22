@@ -17,3 +17,7 @@ wit-bindgen-gen-wasm3 = { version = "0.1.0", path = "../codegen" }
 [dev-dependencies]
 anyhow = "1.0.56"
 wasm3 = "0.3.1"
+
+[features]
+default = []
+tracing = []

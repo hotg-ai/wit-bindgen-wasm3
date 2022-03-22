@@ -8,9 +8,15 @@ description = "Runtime support crate for using WIT interfaces from a WASM3 host.
 
 [dependencies]
 anyhow = "1.0.56"
+bitflags = "1.3.2"
+thiserror = "1.0.30"
+tracing-lib = { version = "0.1.26", optional = true, package = 'tracing' }
 wasm3 = "0.3.1"
-wit-bindgen-wasm3-macros = { version = "0.1.0", path = "../macros", optional = true }
+wasmtime = "0.35.1"
+wit-bindgen-wasm3-macros = { path = "../macros" }
 
 [features]
-default = ["macros"]
-macros = ["wit-bindgen-wasm3-macros"]
+# Enables generated code to emit events via the `tracing` crate whenever wasm is
+# entered and when native functions are called. Note that tracing is currently
+# only done for imported functions.
+tracing = ['tracing-lib', 'wit-bindgen-wasm3-macros/tracing']

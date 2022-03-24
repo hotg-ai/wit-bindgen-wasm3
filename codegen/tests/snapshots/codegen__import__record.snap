@@ -1,6 +1,19 @@
-pub mod single_function {
+---
+source: codegen/tests/codegen.rs
+expression: record
+---
+pub mod custom_record {
     #[allow(unused_imports)]
-    use wit_bindgen_wasm3::{anyhow, wasmtime};
+    use wit_bindgen_wasm3::rt::{anyhow, wasm3};
+    #[derive(Clone)]
+    pub struct Foo<'a> {
+        pub bar: &'a str,
+    }
+    impl<'a> std::fmt::Debug for Foo<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("Foo").field("bar", &self.bar).finish()
+        }
+    }
 
     /// Auxiliary data associated with the wasm exports.
     ///
@@ -8,12 +21,15 @@ pub mod single_function {
     /// `Store<T>` itself so lifting/lowering state can be managed
     /// when translating between the host and wasm.
     #[derive(Default)]
-    pub struct SingleFunctionData {}
-    pub struct SingleFunction<T> {
-        get_state: Box<dyn Fn(&mut T) -> &mut SingleFunctionData + Send + Sync>,
-        f: wasmtime::TypedFunc<(), ()>,
+    pub struct CustomRecordData<'rt> {}
+    pub struct CustomRecord<T> {
+        get_state: Box<dyn Fn(&mut T) -> &mut CustomRecordData + Send + Sync>,
+        canonical_abi_realloc:
+            wit_bindgen_wasm3::rt::wasm3::Function<'rt, (i32, i32, i32, i32), i32>,
+        memory: wasmtime::Memory,
+        start: wit_bindgen_wasm3::rt::wasm3::Function<'rt, (i32, i32), ()>,
     }
-    impl<T> SingleFunction<T> {
+    impl<T> CustomRecord<T> {
         #[allow(unused_variables)]
 
         /// Adds any intrinsics, if necessary for this exported wasm
@@ -24,7 +40,7 @@ pub mod single_function {
         /// the general store's state.
         pub fn add_to_linker(
             linker: &mut wasmtime::Linker<T>,
-            get_state: impl Fn(&mut T) -> &mut SingleFunctionData + Send + Sync + Copy + 'static,
+            get_state: impl Fn(&mut T) -> &mut CustomRecordData + Send + Sync + Copy + 'static,
         ) -> anyhow::Result<()> {
             Ok(())
         }
@@ -47,7 +63,7 @@ pub mod single_function {
             mut store: impl wasmtime::AsContextMut<Data = T>,
             module: &wasmtime::Module,
             linker: &mut wasmtime::Linker<T>,
-            get_state: impl Fn(&mut T) -> &mut SingleFunctionData + Send + Sync + Copy + 'static,
+            get_state: impl Fn(&mut T) -> &mut CustomRecordData + Send + Sync + Copy + 'static,
         ) -> anyhow::Result<(Self, wasmtime::Instance)> {
             Self::add_to_linker(linker, get_state)?;
             let instance = linker.instantiate(&mut store, module)?;
@@ -65,21 +81,42 @@ pub mod single_function {
         pub fn new(
             mut store: impl wasmtime::AsContextMut<Data = T>,
             instance: &wasmtime::Instance,
-            get_state: impl Fn(&mut T) -> &mut SingleFunctionData + Send + Sync + Copy + 'static,
+            get_state: impl Fn(&mut T) -> &mut CustomRecordData + Send + Sync + Copy + 'static,
         ) -> anyhow::Result<Self> {
             let mut store = store.as_context_mut();
-            let f = instance.get_typed_func::<(), (), _>(&mut store, "f")?;
-            Ok(SingleFunction {
-                f,
+            let canonical_abi_realloc = instance.get_typed_func::<(i32, i32, i32, i32), i32, _>(
+                &mut store,
+                "canonical_abi_realloc",
+            )?;
+            let memory = instance
+                .get_memory(&mut store, "memory")
+                .ok_or_else(|| anyhow::anyhow!("`memory` export not a memory"))?;
+            let start = instance.get_typed_func::<(i32, i32), (), _>(&mut store, "start")?;
+            Ok(CustomRecord {
+                canonical_abi_realloc,
+                memory,
+                start,
                 get_state: Box::new(get_state),
             })
         }
-        pub fn f(
+        pub fn start(
             &self,
-            mut caller: impl wasmtime::AsContextMut<Data = T>,
-        ) -> Result<(), wasmtime::Trap> {
-            self.f.call(&mut caller, ())?;
+            mut caller: wit_bindgen_wasm3::rt::wasm3::Runtime<'_>,
+            value: Foo<'_>,
+        ) -> Result<(), wit_bindgen_wasm3::rt::wasm3::Trap> {
+            let func_canonical_abi_realloc = &self.canonical_abi_realloc;
+            let memory = &self.memory;
+            let Foo { bar: bar0 } = value;
+            let vec1 = bar0;
+            let ptr1 =
+                func_canonical_abi_realloc.call(&mut caller, (0, 0, 1, (vec1.len() as i32) * 1))?;
+            memory
+                .data_mut(&mut caller)
+                .store_many(ptr1, vec1.as_ref())?;
+            self.start.call(&mut caller, (ptr1, vec1.len() as i32))?;
             Ok(())
         }
     }
+    use wit_bindgen_wasm3::rt::RawMem;
 }
+

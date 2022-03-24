@@ -621,7 +621,7 @@ impl Generator for Wasm3 {
         // Generate the closure that's passed to a `Linker`, the final piece of
         // codegen here.
         self.src
-            .push_str("move |mut caller: wasm3::CallContext<'_>");
+            .push_str("move |mut caller: wit_bindgen_wasm3::rt::wasm3::CallContext<'_>");
         for (i, param) in sig.params.iter().enumerate() {
             let arg = format!("arg{}", i);
             self.src.push_str(",");
@@ -661,22 +661,20 @@ impl Generator for Wasm3 {
 
         if needs_memory || needs_borrow_checker {
             self.src
-                .push_str("let memory = &get_memory(&mut caller, \"memory\")?;\n");
+                .push_str("let memory = unsafe { &*caller.memory_mut() };\n");
             self.needs_get_memory = true;
         }
 
         if needs_borrow_checker {
-            self.src.push_str(
-                "let (mem, data) = memory.data_and_store_mut(&mut caller);
-                let mut _bc = wit_bindgen_wasm3::BorrowChecker::new(mem);
-                let host = get(data);\n",
-            );
-        } else {
-            self.src.push_str("let host = get(caller.data_mut());\n");
+            self.src
+                .push_str("let mut _bc = wit_bindgen_wasm3::BorrowChecker::new(memory);");
         }
 
+        self.src
+            .push_str("let state = state.lock().expect(\"lock was poisoned\");\n");
+
         if self.all_needed_handles.len() > 0 {
-            self.src.push_str("let (host, _tables) = host;\n");
+            self.src.push_str("let (state, _tables) = state;\n");
         }
 
         self.src.push_str(&String::from(src));
@@ -702,11 +700,12 @@ impl Generator for Wasm3 {
         let prev = mem::take(&mut self.src);
 
         let mut sig = FnSig::default();
-        sig.self_arg = Some("&self, mut caller: wasm3::Runtime<'_>".to_string());
+        sig.self_arg =
+            Some("&self, mut caller: wit_bindgen_wasm3::rt::wasm3::Runtime<'_>".to_string());
         self.print_docs_and_params(iface, func, TypeMode::AllBorrowed("'_"), &sig);
         self.push_str("-> Result<");
         self.print_results(iface, func);
-        self.push_str(", wasm3::Trap> {\n");
+        self.push_str(", wit_bindgen_wasm3::rt::wasm3::Trap> {\n");
 
         let is_dtor = self.types.is_preview1_dtor_func(func);
         if is_dtor {
@@ -800,7 +799,7 @@ impl Generator for Wasm3 {
         exports.fields.insert(
             to_rust_ident(&func.name),
             (
-                format!("wasm3::Function<{}>", cvt),
+                format!("wit_bindgen_wasm3::rt::wasm3::Function<'rt, {}>", cvt),
                 format!(
                     "instance.get_typed_func::<{}, _>(&mut store, \"{}\")?",
                     cvt, func.name,
@@ -828,12 +827,12 @@ impl Generator for Wasm3 {
                 self.src.push_str("type Error;\n");
                 if self.needs_custom_error_to_trap {
                     self.src.push_str(
-                        "fn error_to_trap(&mut self, err: Self::Error) -> wasmtime::Trap;\n",
+                        "fn error_to_trap(&mut self, err: Self::Error) -> wit_bindgen_wasm3::rt::wasm3::Trap;\n",
                     );
                 }
                 for ty in self.needs_custom_error_to_types.iter() {
                     self.src.push_str(&format!(
-                        "fn error_to_{}(&mut self, err: Self::Error) -> Result<{}, wasmtime::Trap>;\n",
+                        "fn error_to_{}(&mut self, err: Self::Error) -> Result<{}, wit_bindgen_wasm3::rt::wasm3::Trap>;\n",
                         ty.to_snake_case(),
                         ty.to_camel_case(),
                     ));
@@ -884,16 +883,13 @@ impl Generator for Wasm3 {
 
         for (module, funcs) in mem::take(&mut self.guest_imports) {
             let module_camel = module.to_camel_case();
-            self.push_str("\npub fn add_to_linker<T, U>(linker: &mut wasmtime::Linker<T>");
-            self.push_str(", get: impl Fn(&mut T) -> ");
-            if self.all_needed_handles.is_empty() {
-                self.push_str("&mut U");
-            } else {
-                self.push_str(&format!("(&mut U, &mut {}Tables<U>)", module_camel));
-            }
-            self.push_str("+ Send + Sync + Copy + 'static) -> anyhow::Result<()> \n");
+            self.push_str(
+                "\npub fn register<U>(module: &wit_bindgen_wasm3::rt::wasm3::Module<'_>,",
+            );
+            self.push_str("state: U) -> wit_bindgen_wasm3::rt::wasm3::Result<()> \n");
             self.push_str("where U: ");
             self.push_str(&module_camel);
+            self.push_str(" + Send + Sync + 'static");
             self.push_str("\n{\n");
             if self.needs_get_memory {
                 self.push_str("use wit_bindgen_wasm3::rt::get_memory;\n");
@@ -901,33 +897,35 @@ impl Generator for Wasm3 {
             if self.needs_get_func {
                 self.push_str("use wit_bindgen_wasm3::rt::get_func;\n");
             }
+
+            self.push_str("let state = Arc::new(Mutex::new(state));\n");
+
             for f in funcs {
-                let method = "func_wrap";
+                self.push_str("{\n");
+                self.push_str("let state = Arc::clone(&state);\n");
                 self.push_str(&format!(
-                    "linker.{}(\"{}\", \"{}\", {})?;\n",
-                    method, module, f.name, f.closure,
+                    "module.link_closure(\"{}\", \"{}\", {})?;\n",
+                    module, f.name, f.closure,
                 ));
+                self.push_str("}\n");
             }
             if !self.has_preview1_dtor {
                 for handle in self.all_needed_handles.iter() {
+                    let snake = handle.to_snake_case();
                     self.src.push_str(&format!(
-                        "linker.func_wrap(
+                        "module.link_closure(
                             \"canonical_abi\",
-                            \"resource_drop_{name}\",
-                            move |mut caller: wasmtime::Caller<'_, T>, handle: u32| {{
-                                let (host, tables) = get(caller.data_mut());
+                            \"resource_drop_{handle}\",
+                            move |mut caller: wit_bindgen_wasm3::rt::wasm3::CallContext<'_, T>, handle: u32| {{
+                                let (host, tables) = state.lock().expect(\"Lock poisoned\");
                                 let handle = tables
                                     .{snake}_table
                                     .remove(handle)
-                                    .map_err(|e| {{
-                                        wasmtime::Trap::new(format!(\"failed to remove handle: {{}}\", e))
-                                    }})?;
+                                    .map_err(|_| wit_bindgen_wasm3::rt::wasm3::Trap::Abort)?;
                                 host.drop_{snake}(handle);
                                 Ok(())
                             }}
                         )?;\n",
-                        name = handle,
-                        snake = handle.to_snake_case(),
                     ));
                 }
             }
@@ -952,13 +950,13 @@ impl Generator for Wasm3 {
             self.push_str("#[derive(Default)]\n");
             self.push_str("pub struct ");
             self.push_str(&name);
-            self.push_str("Data {\n");
+            self.push_str("Data<'rt> {\n");
             for r in self.exported_resources.iter() {
                 self.src.push_str(&format!(
                     "
                         index_slab{}: wit_bindgen_wasm3::rt::IndexSlab,
                         resource_slab{0}: wit_bindgen_wasm3::rt::ResourceSlab,
-                        dtor{0}: Option<wasmtime::TypedFunc<i32, ()>>,
+                        dtor{0}: Option<wit_bindgen_wasm3::rt::wasm3::Function<'rt, i32, ()>>,
                     ",
                     r.index()
                 ));
@@ -2008,7 +2006,7 @@ impl Bindgen for FunctionBindgen<'_> {
                     self.push_str(".raw() };\n");
                 }
 
-                let mut call = format!("host.{}(", func.name.to_snake_case());
+                let mut call = format!("state.{}(", func.name.to_snake_case());
                 if self.func_takes_all_memory {
                     call.push_str("raw_memory, ");
                 }
@@ -2131,7 +2129,10 @@ impl NeededFunction {
     }
 
     fn ty(&self) -> String {
-        format!("wasmtime::TypedFunc<{}>", self.cvt())
+        format!(
+            "wit_bindgen_wasm3::rt::wasm3::Function<'rt, {}>",
+            self.cvt()
+        )
     }
 }
 

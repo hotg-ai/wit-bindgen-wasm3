@@ -12,7 +12,7 @@ use wit_bindgen_gen_wasm3::Wasm3;
 /// Given the following WIT file:
 ///
 /// ```text
-#[doc = include_str!("../guest.wit")]
+#[doc = include_str!("../../wit-files/rune/rune-v1.wit")]
 /// ```
 ///
 /// You would load the WebAssembly module and call `start()` like this:
@@ -20,7 +20,7 @@ use wit_bindgen_gen_wasm3::Wasm3;
 /// ```rust,no_run
 /// use wasm3::Environment;
 ///
-/// wit_bindgen_wasm3_macros::import!("guest.wit");
+/// wit_bindgen_wasm3_macros::import!("../wit-files/rune/rune-v1.wit");
 ///
 /// use guest::{Guest, Metadata}; // Bring the generated types into scope
 ///
@@ -51,7 +51,7 @@ pub fn import(input: TokenStream) -> TokenStream {
 /// Given the following WIT file:
 ///
 /// ```text
-#[doc = include_str!("../host.wit")]
+#[doc = include_str!("../../wit-files/rune/runtime-v1.wit")]
 /// ```
 ///
 /// You would load the WebAssembly module and call `start()` like this:
@@ -59,7 +59,7 @@ pub fn import(input: TokenStream) -> TokenStream {
 /// ```rust
 /// use wasm3::{Environment, Module, Runtime};
 ///
-/// wit_bindgen_wasm3_macros::export!("host.wit");
+/// wit_bindgen_wasm3_macros::export!("../wit-files/rune/runtime-v1.wit");
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let env = Environment::new()?;

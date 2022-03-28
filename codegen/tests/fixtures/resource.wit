@@ -1,0 +1,13 @@
+resource file {
+    static new: function() -> file
+    get-path: function() -> string
+    read: function(buffer: push-buffer<u8>) -> expected<u32, error>
+}
+
+enum error {
+    end-of-file,
+    other,
+}
+
+start: function(value: file)
+

@@ -1,5 +1,6 @@
+use wasm3::error::Trap;
+
 use crate::rt::RawMem;
-use crate::Trap;
 use crate::{Endian, GuestError, Le};
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -25,8 +26,8 @@ pub struct BorrowChecker<'a> {
 unsafe impl Send for BorrowChecker<'_> {}
 unsafe impl Sync for BorrowChecker<'_> {}
 
-fn to_trap(err: impl std::error::Error + Send + Sync + 'static) -> Trap {
-    Trap::from(Box::new(err) as Box<dyn std::error::Error + Send + Sync>)
+fn to_trap(_err: impl std::error::Error + Send + Sync + 'static) -> Trap {
+    Trap::Abort
 }
 
 impl<'a> BorrowChecker<'a> {

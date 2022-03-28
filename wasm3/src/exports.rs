@@ -1,5 +1,6 @@
+use wasm3::error::Trap;
+
 use crate::BorrowChecker;
-use crate::Trap;
 use std::fmt;
 use std::mem;
 
@@ -71,7 +72,7 @@ impl<'a, T> PushBuffer<'a, T> {
     pub fn write(&mut self, iter: impl IntoIterator<Item = T>) -> Result<(), Trap> {
         for item in iter {
             if self.mem.len() == 0 {
-                return Err(Trap::new("too many results in `PushBuffer::write`"));
+                return Err(Trap::Abort);
             }
             let (chunk, rest) = mem::take(&mut self.mem).split_at_mut(self.size);
             self.mem = rest;

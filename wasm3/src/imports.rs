@@ -1,6 +1,6 @@
-use wasm3::CallContext;
+use wasm3::{error::Trap, CallContext};
 
-use crate::{slab::Slab, Trap};
+use crate::slab::Slab;
 use std::{cell::RefCell, convert::TryFrom, mem, rc::Rc};
 
 type Memory = [u8];
@@ -52,7 +52,7 @@ impl BufferGlue {
         let b = inner
             .in_buffers
             .get_mut(handle)
-            .ok_or_else(|| Trap::new("invalid in-buffer handle"))?;
+            .ok_or_else(|| Trap::Abort)?;
         Ok(b.len)
     }
 
@@ -68,11 +68,9 @@ impl BufferGlue {
         let b = inner
             .in_buffers
             .get_mut(handle)
-            .ok_or_else(|| Trap::new("invalid in-buffer handle"))?;
+            .ok_or_else(|| Trap::Abort)?;
         if len > b.len {
-            return Err(Trap::new(
-                "more items requested from in-buffer than are available",
-            ));
+            return Err(Trap::Abort);
         }
         unsafe {
             match &mut b.kind {
@@ -83,7 +81,7 @@ impl BufferGlue {
                     let end = base + write_size;
                     memory
                         .get_mut(base..end)
-                        .ok_or_else(|| Trap::new("out-of-bounds write while reading in-buffer"))?
+                        .ok_or_else(|| Trap::Abort)?
                         .copy_from_slice(std::slice::from_raw_parts(*ptr, write_size));
                     *ptr = (*ptr).add(write_size);
                     b.len -= len;
@@ -122,7 +120,7 @@ impl BufferGlue {
         let b = inner
             .out_buffers
             .get_mut(handle)
-            .ok_or_else(|| Trap::new("out in-buffer handle"))?;
+            .ok_or_else(|| Trap::Abort)?;
         Ok(b.len)
     }
 
@@ -138,11 +136,9 @@ impl BufferGlue {
         let b = inner
             .out_buffers
             .get_mut(handle)
-            .ok_or_else(|| Trap::new("invalid out-buffer handle"))?;
+            .ok_or_else(|| Trap::Abort)?;
         if len > b.len {
-            return Err(Trap::new(
-                "more items written to out-buffer than are available",
-            ));
+            return Err(Trap::Abort);
         }
         unsafe {
             match &mut b.kind {
@@ -151,9 +147,7 @@ impl BufferGlue {
                     let base = base as usize;
                     let end = base + read_size;
                     let memory = &*cc.memory();
-                    let data = memory.get(base..end).ok_or_else(|| {
-                        Trap::new("out-of-bounds read while writing to out-buffer")
-                    })?;
+                    let data = memory.get(base..end).ok_or_else(|| Trap::Abort)?;
                     std::slice::from_raw_parts_mut(*ptr, read_size).copy_from_slice(data);
                     *ptr = (*ptr).add(read_size);
                     b.len -= len;

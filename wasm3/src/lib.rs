@@ -26,30 +26,13 @@ pub struct RawMemory {
 unsafe impl Send for RawMemory {}
 unsafe impl Sync for RawMemory {}
 
-#[derive(Debug)]
-pub struct Trap(Box<dyn std::error::Error + Send + Sync + 'static>);
-
-impl Trap {
-    pub fn new(s: impl Into<String>) -> Self {
-        Trap::from(s.into())
-    }
-}
-
-impl<E> From<E> for Trap
-where
-    E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
-{
-    fn from(e: E) -> Trap {
-        Trap(e.into())
-    }
-}
-
 #[doc(hidden)]
 pub mod rt {
     pub use {anyhow, bitflags, wasm3};
 
-    use crate::{slab::Slab, Endian, Le, Trap};
+    use crate::{slab::Slab, Endian, Le};
     use std::mem;
+    use wasm3::error::Trap;
     use wasm3::*;
 
     pub trait RawMem {
@@ -63,7 +46,7 @@ pub mod rt {
             let mem = self
                 .get_mut(offset as usize..)
                 .and_then(|m| m.get_mut(..mem::size_of::<T>()))
-                .ok_or_else(|| Trap::new("out of bounds write"))?;
+                .ok_or_else(|| Trap::Abort)?;
             Le::from_slice_mut(mem)[0].set(val);
             Ok(())
         }
@@ -75,7 +58,7 @@ pub mod rt {
                     let len = mem::size_of::<T>().checked_mul(val.len())?;
                     m.get_mut(..len)
                 })
-                .ok_or_else(|| Trap::new("out of bounds write"))?;
+                .ok_or_else(|| Trap::Abort)?;
             for (slot, val) in Le::from_slice_mut(mem).iter_mut().zip(val) {
                 slot.set(*val);
             }
@@ -86,18 +69,18 @@ pub mod rt {
             let mem = self
                 .get(offset as usize..)
                 .and_then(|m| m.get(..mem::size_of::<Le<T>>()))
-                .ok_or_else(|| Trap::new("out of bounds read"))?;
+                .ok_or_else(|| Trap::Abort)?;
             Ok(Le::from_slice(mem)[0].get())
         }
     }
 
     pub fn char_from_i32(val: i32) -> Result<char, Trap> {
-        core::char::from_u32(val as u32).ok_or_else(|| Trap::new("char value out of valid range"))
+        core::char::from_u32(val as u32).ok_or_else(|| Trap::Abort)
     }
 
     pub fn invalid_variant(name: &str) -> Trap {
-        let msg = format!("invalid discriminant for `{}`", name);
-        Trap::new(msg)
+        let _msg = format!("invalid discriminant for `{}`", name);
+        Trap::Abort
     }
 
     pub fn validate_flags<U>(
@@ -107,8 +90,8 @@ pub mod rt {
         mk: impl FnOnce(i64) -> U,
     ) -> Result<U, Trap> {
         if bits & !all != 0 {
-            let msg = format!("invalid flags specified for `{}`", name);
-            Err(Trap::new(msg))
+            let _msg = format!("invalid flags specified for `{}`", name);
+            Err(Trap::Abort)
         } else {
             Ok(mk(bits))
         }
@@ -123,8 +106,8 @@ pub mod rt {
         Args: WasmArgs,
     {
         let func = runtime.find_function(func).map_err(|_| {
-            let msg = format!("`{}` export not available", func);
-            Trap::new(msg)
+            let _msg = format!("`{}` export not available", func);
+            Trap::Abort
         })?;
         Ok(func)
     }
@@ -134,8 +117,8 @@ pub mod rt {
     }
 
     pub fn bad_int(_: std::num::TryFromIntError) -> Trap {
-        let msg = "out-of-bounds integer conversion";
-        Trap::new(msg)
+        let _msg = "out-of-bounds integer conversion";
+        Trap::Abort
     }
 
     pub fn copy_slice<T: Endian>(
@@ -146,13 +129,11 @@ pub mod rt {
     ) -> Result<Vec<T>, Trap> {
         let size = (len as u32)
             .checked_mul(mem::size_of::<T>() as u32)
-            .ok_or_else(|| Trap::new("array too large to fit in wasm memory"))?;
+            .ok_or_else(|| Trap::Abort)?;
         let base = base as usize;
         let size = size as usize;
         let slice = unsafe { &*cc.memory() };
-        let slice = slice
-            .get(base..base + size)
-            .ok_or_else(|| Trap::new("out of bounds read"))?;
+        let slice = slice.get(base..base + size).ok_or_else(|| Trap::Abort)?;
         Ok(Le::from_slice(slice).iter().map(|s| s.get()).collect())
     }
 
@@ -203,14 +184,14 @@ pub mod rt {
         pub fn get(&self, slab_idx: u32) -> Result<ResourceIndex, Trap> {
             match self.slab.get(slab_idx) {
                 Some(idx) => Ok(*idx),
-                None => Err(Trap::new("invalid index specified for handle")),
+                None => Err(Trap::Abort),
             }
         }
 
         pub fn remove(&mut self, slab_idx: u32) -> Result<ResourceIndex, Trap> {
             match self.slab.remove(slab_idx) {
                 Some(idx) => Ok(idx),
-                None => Err(Trap::new("invalid index specified for handle")),
+                None => Err(Trap::Abort),
             }
         }
     }
@@ -242,7 +223,7 @@ pub mod rt {
             let resource = self.slab.get_mut(idx.0).unwrap();
             resource.refcnt = match resource.refcnt.checked_add(1) {
                 Some(cnt) => cnt,
-                None => return Err(Trap::new("resource index count overflow")),
+                None => return Err(Trap::Abort),
             };
             Ok(())
         }

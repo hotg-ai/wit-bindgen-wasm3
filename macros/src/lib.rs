@@ -56,10 +56,10 @@ pub fn import(input: TokenStream) -> TokenStream {
 ///
 /// You would load the WebAssembly module and call `start()` like this:
 ///
-/// ```rust,ignore
+/// ```rust
 /// use wasm3::{Environment, Module, Runtime};
 ///
-/// wit_bindgen_wasm3_macros::import!("host.wit");
+/// wit_bindgen_wasm3_macros::export!("host.wit");
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let env = Environment::new()?;

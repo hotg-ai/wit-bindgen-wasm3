@@ -2,7 +2,7 @@
 source: codegen/tests/codegen.rs
 expression: record
 ---
-pub mod custom_record {
+pub mod record {
     #[allow(unused_imports)]
     use wit_bindgen_wasm3::rt::{anyhow, wasm3};
     #[derive(Clone)]
@@ -14,27 +14,26 @@ pub mod custom_record {
             f.debug_struct("Foo").field("bar", &self.bar).finish()
         }
     }
-    pub trait CustomRecord: Sized {
+    pub trait Record: Sized {
         fn start(&mut self, value: Foo<'_>);
     }
 
     pub fn register<U>(
         module: &wit_bindgen_wasm3::rt::wasm3::Module<'_>,
         state: U,
-    ) -> wit_bindgen_wasm3::rt::wasm3::Result<()>
+    ) -> wit_bindgen_wasm3::rt::wasm3::error::Result<()>
     where
-        U: CustomRecord + Send + Sync + 'static,
+        U: Record + Send + Sync + 'static,
     {
         use wit_bindgen_wasm3::rt::get_memory;
-        let state = Arc::new(Mutex::new(state));
+        let state = std::sync::Arc::new(std::sync::Mutex::new(state));
         {
-            let state = Arc::clone(&state);
+            let state = std::sync::Arc::clone(&state);
             module.link_closure(
-                "custom-record",
+                "record",
                 "start",
-                move |mut caller: wit_bindgen_wasm3::rt::wasm3::CallContext<'_>,
-                      arg0: i32,
-                      arg1: i32| {
+                move |mut caller: wit_bindgen_wasm3::rt::wasm3::CallContext,
+                      (arg0, arg1): (i32, i32)| {
                     let memory = unsafe { &*caller.memory_mut() };
                     let mut _bc = wit_bindgen_wasm3::BorrowChecker::new(memory);
                     let state = state.lock().expect("lock was poisoned");

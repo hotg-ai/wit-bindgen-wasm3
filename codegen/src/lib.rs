@@ -621,15 +621,25 @@ impl Generator for Wasm3 {
         // Generate the closure that's passed to a `Linker`, the final piece of
         // codegen here.
         self.src
-            .push_str("move |mut caller: wit_bindgen_wasm3::rt::wasm3::CallContext<'_>");
-        for (i, param) in sig.params.iter().enumerate() {
+            .push_str("move |mut caller: wit_bindgen_wasm3::rt::wasm3::CallContext, (");
+        for i in 0..sig.params.len() {
+            if i > 0 {
+                self.src.push_str(", ");
+            }
+
             let arg = format!("arg{}", i);
-            self.src.push_str(",");
             self.src.push_str(&arg);
-            self.src.push_str(":");
+        }
+
+        self.src.push_str("): (");
+
+        for (i, param) in sig.params.iter().enumerate() {
+            if i > 0 {
+                self.src.push_str(", ");
+            }
             self.wasm_type(*param);
         }
-        self.src.push_str("| {\n");
+        self.src.push_str(")| {\n");
 
         if self.opts.tracing {
             self.src.push_str(&format!(
@@ -705,7 +715,7 @@ impl Generator for Wasm3 {
         self.print_docs_and_params(iface, func, TypeMode::AllBorrowed("'_"), &sig);
         self.push_str("-> Result<");
         self.print_results(iface, func);
-        self.push_str(", wit_bindgen_wasm3::rt::wasm3::Trap> {\n");
+        self.push_str(", wit_bindgen_wasm3::rt::wasm3::error::Trap> {\n");
 
         let is_dtor = self.types.is_preview1_dtor_func(func);
         if is_dtor {
@@ -752,20 +762,8 @@ impl Generator for Wasm3 {
 
         assert!(!needs_borrow_checker);
         if needs_memory {
-            self.src.push_str("let memory = &self.memory;\n");
-            exports.fields.insert(
-                "memory".to_string(),
-                (
-                    "wasmtime::Memory".to_string(),
-                    "instance
-                        .get_memory(&mut store, \"memory\")
-                         .ok_or_else(|| {
-                             anyhow::anyhow!(\"`memory` export not a memory\")
-                         })?
-                    "
-                    .to_string(),
-                ),
-            );
+            self.src
+                .push_str("let memory = unsafe { &mut *ctx.memory_mut() };\n");
         }
 
         if needs_buffer_transaction {
@@ -827,12 +825,12 @@ impl Generator for Wasm3 {
                 self.src.push_str("type Error;\n");
                 if self.needs_custom_error_to_trap {
                     self.src.push_str(
-                        "fn error_to_trap(&mut self, err: Self::Error) -> wit_bindgen_wasm3::rt::wasm3::Trap;\n",
+                        "fn error_to_trap(&mut self, err: Self::Error) -> wit_bindgen_wasm3::rt::wasm3::error::Trap;\n",
                     );
                 }
                 for ty in self.needs_custom_error_to_types.iter() {
                     self.src.push_str(&format!(
-                        "fn error_to_{}(&mut self, err: Self::Error) -> Result<{}, wit_bindgen_wasm3::rt::wasm3::Trap>;\n",
+                        "fn error_to_{}(&mut self, err: Self::Error) -> Result<{}, wit_bindgen_wasm3::rt::wasm3::error::Trap>;\n",
                         ty.to_snake_case(),
                         ty.to_camel_case(),
                     ));
@@ -886,7 +884,7 @@ impl Generator for Wasm3 {
             self.push_str(
                 "\npub fn register<U>(module: &wit_bindgen_wasm3::rt::wasm3::Module<'_>,",
             );
-            self.push_str("state: U) -> wit_bindgen_wasm3::rt::wasm3::Result<()> \n");
+            self.push_str("state: U) -> wit_bindgen_wasm3::rt::wasm3::error::Result<()> \n");
             self.push_str("where U: ");
             self.push_str(&module_camel);
             self.push_str(" + Send + Sync + 'static");
@@ -898,11 +896,11 @@ impl Generator for Wasm3 {
                 self.push_str("use wit_bindgen_wasm3::rt::get_func;\n");
             }
 
-            self.push_str("let state = Arc::new(Mutex::new(state));\n");
+            self.push_str("let state = std::sync::Arc::new(std::sync::Mutex::new(state));\n");
 
             for f in funcs {
                 self.push_str("{\n");
-                self.push_str("let state = Arc::clone(&state);\n");
+                self.push_str("let state = std::sync::Arc::clone(&state);\n");
                 self.push_str(&format!(
                     "module.link_closure(\"{}\", \"{}\", {})?;\n",
                     module, f.name, f.closure,
@@ -916,12 +914,13 @@ impl Generator for Wasm3 {
                         "module.link_closure(
                             \"canonical_abi\",
                             \"resource_drop_{handle}\",
-                            move |mut caller: wit_bindgen_wasm3::rt::wasm3::CallContext<'_, T>, handle: u32| {{
-                                let (host, tables) = state.lock().expect(\"Lock poisoned\");
+                            move |mut caller: wit_bindgen_wasm3::rt::wasm3::CallContext, handle: u32| {{
+                                let mut state = state.lock().expect(\"Lock poisoned\");
+                                let (host, tables) = &mut *state;
                                 let handle = tables
                                     .{snake}_table
                                     .remove(handle)
-                                    .map_err(|_| wit_bindgen_wasm3::rt::wasm3::Trap::Abort)?;
+                                    .map_err(|_| wit_bindgen_wasm3::rt::wasm3::error::Trap::Abort)?;
                                 host.drop_{snake}(handle);
                                 Ok(())
                             }}
@@ -1007,7 +1006,7 @@ impl Generator for Wasm3 {
                         linker.{func_wrap}(
                             \"canonical_abi\",
                             \"resource_drop_{name}\",
-                            move |mut caller: wasmtime::Caller<'_, T>, idx: u32| {prefix}{{
+                            move |mut caller: &mut wit_bindgen_wasm3::rt::wasm3::CallContext, idx: u32| {prefix}{{
                                 let state = get_state(caller.data_mut());
                                 let resource_idx = state.index_slab{idx}.remove(idx)?;
                                 let wasm = match state.resource_slab{idx}.drop(resource_idx) {{
@@ -1022,7 +1021,7 @@ impl Generator for Wasm3 {
                         linker.func_wrap(
                             \"canonical_abi\",
                             \"resource_clone_{name}\",
-                            move |mut caller: wasmtime::Caller<'_, T>, idx: u32| {{
+                            move |mut caller: &mut wit_bindgen_wasm3::rt::wasm3::CallContext, idx: u32| {{
                                 let state = get_state(caller.data_mut());
                                 let resource_idx = state.index_slab{idx}.get(idx)?;
                                 state.resource_slab{idx}.clone(resource_idx)?;
@@ -1032,7 +1031,7 @@ impl Generator for Wasm3 {
                         linker.func_wrap(
                             \"canonical_abi\",
                             \"resource_get_{name}\",
-                            move |mut caller: wasmtime::Caller<'_, T>, idx: u32| {{
+                            move |mut caller: &mut wit_bindgen_wasm3::rt::wasm3::CallContext, idx: u32| {{
                                 let state = get_state(caller.data_mut());
                                 let resource_idx = state.index_slab{idx}.get(idx)?;
                                 Ok(state.resource_slab{idx}.get(resource_idx))
@@ -1041,7 +1040,7 @@ impl Generator for Wasm3 {
                         linker.func_wrap(
                             \"canonical_abi\",
                             \"resource_new_{name}\",
-                            move |mut caller: wasmtime::Caller<'_, T>, val: i32| {{
+                            move |mut caller: &mut wit_bindgen_wasm3::rt::wasm3::CallContext, val: i32| {{
                                 let state = get_state(caller.data_mut());
                                 let resource_idx = state.resource_slab{idx}.insert(val);
                                 Ok(state.index_slab{idx}.insert(resource_idx))
@@ -1198,7 +1197,7 @@ impl Generator for Wasm3 {
                             &self,
                             mut store: impl wasmtime::AsContextMut<Data = T>,
                             val: {name_camel},
-                        ) -> Result<(), wasmtime::Trap> {{
+                        ) -> Result<(), wit_bindgen_wasm3::rt::wasm3::error::Trap> {{
                             let mut store = store.as_context_mut();
                             let data = (self.get_state)(store.data_mut());
                             let wasm = match data.resource_slab{idx}.drop(val.0) {{
@@ -1548,7 +1547,7 @@ impl Bindgen for FunctionBindgen<'_> {
                 if self.is_dtor {
                     results.push(format!(
                         "_tables.{}_table.remove(({}) as u32).map_err(|e| {{
-                            wasmtime::Trap::new(format!(\"failed to remove handle: {{}}\", e))
+                            wit_bindgen_wasm3::rt::wasm3::error::Trap::Abort
                         }})?",
                         name.to_snake_case(),
                         operands[0]
@@ -1556,7 +1555,7 @@ impl Bindgen for FunctionBindgen<'_> {
                 } else {
                     results.push(format!(
                         "_tables.{}_table.get(({}) as u32).ok_or_else(|| {{
-                            wasmtime::Trap::new(\"invalid handle index\")
+                            wit_bindgen_wasm3::rt::wasm3::error::Trap::Abort
                         }})?",
                         name.to_snake_case(),
                         operands[0]
@@ -1767,7 +1766,7 @@ impl Bindgen for FunctionBindgen<'_> {
                     if stringify {
                         results.push(format!(
                             "String::from_utf8(data{})
-                                    .map_err(|_| wasmtime::Trap::new(\"invalid utf-8\"))?",
+                                    .map_err(|_| wit_bindgen_wasm3::rt::wasm3::error::Trap::Abort)?",
                             tmp,
                         ));
                     } else {

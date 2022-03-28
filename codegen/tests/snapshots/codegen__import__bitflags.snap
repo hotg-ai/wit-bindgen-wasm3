@@ -1,10 +1,28 @@
 ---
 source: codegen/tests/codegen.rs
-expression: single_function
+expression: bitflags
 ---
-pub mod thunk {
+pub mod bitflags {
     #[allow(unused_imports)]
     use wit_bindgen_wasm3::rt::{anyhow, wasm3};
+    wit_bindgen_wasm3::rt::bitflags::bitflags! {
+      pub struct Properties: u8 {
+        const LEGO = 1 << 0;
+        const MARVEL_SUPERHERO = 1 << 1;
+        const SUPERVILLAN = 1 << 2;
+      }
+    }
+
+    impl core::fmt::Display for Properties {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str("Properties(")?;
+            core::fmt::Debug::fmt(self, f)?;
+            f.write_str(" (0x")?;
+            core::fmt::LowerHex::fmt(&self.bits, f)?;
+            f.write_str("))")?;
+            Ok(())
+        }
+    }
 
     /// Auxiliary data associated with the wasm exports.
     ///
@@ -12,12 +30,12 @@ pub mod thunk {
     /// `Store<T>` itself so lifting/lowering state can be managed
     /// when translating between the host and wasm.
     #[derive(Default)]
-    pub struct ThunkData<'rt> {}
-    pub struct Thunk<T> {
-        get_state: Box<dyn Fn(&mut T) -> &mut ThunkData + Send + Sync>,
-        start: wit_bindgen_wasm3::rt::wasm3::Function<'rt, (), ()>,
+    pub struct BitflagsData<'rt> {}
+    pub struct Bitflags<T> {
+        get_state: Box<dyn Fn(&mut T) -> &mut BitflagsData + Send + Sync>,
+        get_properties: wit_bindgen_wasm3::rt::wasm3::Function<'rt, (), (i32,)>,
     }
-    impl<T> Thunk<T> {
+    impl<T> Bitflags<T> {
         #[allow(unused_variables)]
 
         /// Adds any intrinsics, if necessary for this exported wasm
@@ -28,7 +46,7 @@ pub mod thunk {
         /// the general store's state.
         pub fn add_to_linker(
             linker: &mut wasmtime::Linker<T>,
-            get_state: impl Fn(&mut T) -> &mut ThunkData + Send + Sync + Copy + 'static,
+            get_state: impl Fn(&mut T) -> &mut BitflagsData + Send + Sync + Copy + 'static,
         ) -> anyhow::Result<()> {
             Ok(())
         }
@@ -51,7 +69,7 @@ pub mod thunk {
             mut store: impl wasmtime::AsContextMut<Data = T>,
             module: &wasmtime::Module,
             linker: &mut wasmtime::Linker<T>,
-            get_state: impl Fn(&mut T) -> &mut ThunkData + Send + Sync + Copy + 'static,
+            get_state: impl Fn(&mut T) -> &mut BitflagsData + Send + Sync + Copy + 'static,
         ) -> anyhow::Result<(Self, wasmtime::Instance)> {
             Self::add_to_linker(linker, get_state)?;
             let instance = linker.instantiate(&mut store, module)?;
@@ -69,22 +87,29 @@ pub mod thunk {
         pub fn new(
             mut store: impl wasmtime::AsContextMut<Data = T>,
             instance: &wasmtime::Instance,
-            get_state: impl Fn(&mut T) -> &mut ThunkData + Send + Sync + Copy + 'static,
+            get_state: impl Fn(&mut T) -> &mut BitflagsData + Send + Sync + Copy + 'static,
         ) -> anyhow::Result<Self> {
             let mut store = store.as_context_mut();
-            let start = instance.get_typed_func::<(), (), _>(&mut store, "start")?;
-            Ok(Thunk {
-                start,
+            let get_properties =
+                instance.get_typed_func::<(), (i32,), _>(&mut store, "get-properties")?;
+            Ok(Bitflags {
+                get_properties,
                 get_state: Box::new(get_state),
             })
         }
-        pub fn start(
+        pub fn get_properties(
             &self,
             mut caller: wit_bindgen_wasm3::rt::wasm3::Runtime<'_>,
-        ) -> Result<(), wit_bindgen_wasm3::rt::wasm3::Trap> {
-            self.start.call(&mut caller, ())?;
-            Ok(())
+        ) -> Result<Properties, wit_bindgen_wasm3::rt::wasm3::error::Trap> {
+            let (result0_0,) = self.get_properties.call(&mut caller, ())?;
+            Ok(validate_flags(
+                0 | (i64::from(result0_0) << 0),
+                Properties::all().bits() as i64,
+                "Properties",
+                |b| Properties { bits: b as u8 },
+            )?)
         }
     }
+    use wit_bindgen_wasm3::rt::validate_flags;
 }
 

@@ -1,0 +1,8 @@
+/// Information about this WebAssembly module.
+record metadata {
+    name: string,
+    version: string,
+}
+
+/// Load the module's metadata.
+metadata: function() -> metadata

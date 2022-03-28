@@ -1,0 +1,55 @@
+---
+source: codegen/tests/codegen.rs
+expression: bitflags
+---
+pub mod bitflags {
+    #[allow(unused_imports)]
+    use wit_bindgen_wasm3::rt::{anyhow, wasm3};
+    wit_bindgen_wasm3::rt::bitflags::bitflags! {
+      pub struct Properties: u8 {
+        const LEGO = 1 << 0;
+        const MARVEL_SUPERHERO = 1 << 1;
+        const SUPERVILLAN = 1 << 2;
+      }
+    }
+
+    impl core::fmt::Display for Properties {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str("Properties(")?;
+            core::fmt::Debug::fmt(self, f)?;
+            f.write_str(" (0x")?;
+            core::fmt::LowerHex::fmt(&self.bits, f)?;
+            f.write_str("))")?;
+            Ok(())
+        }
+    }
+
+    pub trait Bitflags: Sized {
+        fn get_properties(&mut self) -> Properties;
+    }
+
+    pub fn register<U>(
+        module: &wit_bindgen_wasm3::rt::wasm3::Module<'_>,
+        state: U,
+    ) -> wit_bindgen_wasm3::rt::wasm3::error::Result<()>
+    where
+        U: Bitflags + Send + Sync + 'static,
+    {
+        let state = std::sync::Arc::new(std::sync::Mutex::new(state));
+        {
+            let state = std::sync::Arc::clone(&state);
+            module.link_closure(
+                "bitflags",
+                "get-properties",
+                move |mut caller: wit_bindgen_wasm3::rt::wasm3::CallContext, (): ()| {
+                    let state = state.lock().expect("lock was poisoned");
+                    let result0 = state.get_properties();
+                    let flags1 = result0;
+                    Ok((flags1.bits >> 0) as i32)
+                },
+            )?;
+        }
+        Ok(())
+    }
+}
+

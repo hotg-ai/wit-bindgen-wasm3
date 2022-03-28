@@ -1,0 +1,7 @@
+flags properties {
+    lego,
+    marvel-superhero,
+    supervillan,
+}
+
+get-properties: function() -> properties

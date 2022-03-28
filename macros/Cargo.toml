@@ -1,8 +1,8 @@
 [package]
-name = "wit-bindgen-wasm3-impl"
+name = "wit-bindgen-wasm3-macros"
 version = "0.1.0"
 edition = "2021"
-description = "Procedural macro that generates code for linking WIT interfaces with a WASM3 host."
+description = "Procedural macros that generates code for linking WIT interfaces with a WASM3 host."
 
 [lib]
 proc-macro = true
@@ -10,4 +10,15 @@ proc-macro = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+syn = "1.0.89"
+wit-bindgen-gen-core = { git = "https://github.com/bytecodealliance/wit-bindgen" }
 wit-bindgen-gen-wasm3 = { version = "0.1.0", path = "../codegen" }
+
+[dev-dependencies]
+anyhow = "1.0.56"
+wasm3 = "0.3.1"
+wit-bindgen-wasm3 = { path = "../wasm3" }
+
+[features]
+default = []
+tracing = []

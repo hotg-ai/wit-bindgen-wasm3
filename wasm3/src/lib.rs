@@ -1,8 +1,242 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
+pub use wit_bindgen_wasm3_macros::{export, import};
+
+#[cfg(feature = "tracing-lib")]
+pub use tracing_lib as tracing;
+
+mod error;
+pub mod exports;
+pub mod imports;
+mod le;
+mod region;
+mod slab;
+mod table;
+
+pub use error::GuestError;
+pub use le::{Endian, Le};
+pub use region::{AllBytesValid, BorrowChecker, Region};
+pub use table::*;
+
+pub struct RawMemory {
+    pub slice: *mut [u8],
+}
+
+// This type is threadsafe despite its internal pointer because it allows no
+// safe access to the internal pointer. Consumers must uphold Send/Sync
+// guarantees themselves.
+unsafe impl Send for RawMemory {}
+unsafe impl Sync for RawMemory {}
+
+#[doc(hidden)]
+pub mod rt {
+    pub use {anyhow, bitflags, wasm3};
+
+    use crate::{slab::Slab, Endian, Le};
+    use std::mem;
+    use wasm3::error::Trap;
+    use wasm3::*;
+
+    pub trait RawMem {
+        fn store<T: Endian>(&mut self, offset: i32, val: T) -> Result<(), Trap>;
+        fn store_many<T: Endian>(&mut self, offset: i32, vals: &[T]) -> Result<(), Trap>;
+        fn load<T: Endian>(&self, offset: i32) -> Result<T, Trap>;
+    }
+
+    impl RawMem for [u8] {
+        fn store<T: Endian>(&mut self, offset: i32, val: T) -> Result<(), Trap> {
+            let mem = self
+                .get_mut(offset as usize..)
+                .and_then(|m| m.get_mut(..mem::size_of::<T>()))
+                .ok_or_else(|| Trap::Abort)?;
+            Le::from_slice_mut(mem)[0].set(val);
+            Ok(())
+        }
+
+        fn store_many<T: Endian>(&mut self, offset: i32, val: &[T]) -> Result<(), Trap> {
+            let mem = self
+                .get_mut(offset as usize..)
+                .and_then(|m| {
+                    let len = mem::size_of::<T>().checked_mul(val.len())?;
+                    m.get_mut(..len)
+                })
+                .ok_or_else(|| Trap::Abort)?;
+            for (slot, val) in Le::from_slice_mut(mem).iter_mut().zip(val) {
+                slot.set(*val);
+            }
+            Ok(())
+        }
+
+        fn load<T: Endian>(&self, offset: i32) -> Result<T, Trap> {
+            let mem = self
+                .get(offset as usize..)
+                .and_then(|m| m.get(..mem::size_of::<Le<T>>()))
+                .ok_or_else(|| Trap::Abort)?;
+            Ok(Le::from_slice(mem)[0].get())
+        }
+    }
+
+    pub fn char_from_i32(val: i32) -> Result<char, Trap> {
+        core::char::from_u32(val as u32).ok_or_else(|| Trap::Abort)
+    }
+
+    pub fn invalid_variant(name: &str) -> Trap {
+        let _msg = format!("invalid discriminant for `{}`", name);
+        Trap::Abort
+    }
+
+    pub fn validate_flags<U>(
+        bits: i64,
+        all: i64,
+        name: &str,
+        mk: impl FnOnce(i64) -> U,
+    ) -> Result<U, Trap> {
+        if bits & !all != 0 {
+            let _msg = format!("invalid flags specified for `{}`", name);
+            Err(Trap::Abort)
+        } else {
+            Ok(mk(bits))
+        }
+    }
+
+    pub fn get_func<'rt, Args, Ret>(
+        runtime: &'rt Runtime,
+        func: &str,
+    ) -> Result<Function<'rt, Args, Ret>, Trap>
+    where
+        Ret: WasmType,
+        Args: WasmArgs,
+    {
+        let func = runtime.find_function(func).map_err(|_| {
+            let _msg = format!("`{}` export not available", func);
+            Trap::Abort
+        })?;
+        Ok(func)
+    }
+
+    pub fn get_memory<'cc>(cc: &'cc CallContext<'cc>, _mem: &str) -> Result<&'cc [u8], Trap> {
+        Ok(unsafe { &*cc.memory() })
+    }
+
+    pub fn bad_int(_: std::num::TryFromIntError) -> Trap {
+        let _msg = "out-of-bounds integer conversion";
+        Trap::Abort
+    }
+
+    pub fn copy_slice<T: Endian>(
+        cc: &CallContext<'_>,
+        base: i32,
+        len: i32,
+        _align: i32,
+    ) -> Result<Vec<T>, Trap> {
+        let size = (len as u32)
+            .checked_mul(mem::size_of::<T>() as u32)
+            .ok_or_else(|| Trap::Abort)?;
+        let base = base as usize;
+        let size = size as usize;
+        let slice = unsafe { &*cc.memory() };
+        let slice = slice.get(base..base + size).ok_or_else(|| Trap::Abort)?;
+        Ok(Le::from_slice(slice).iter().map(|s| s.get()).collect())
+    }
+
+    macro_rules! as_traits {
+        ($(($name:ident $tr:ident $ty:ident ($($tys:ident)*)))*) => ($(
+            pub fn $name<T: $tr>(t: T) -> $ty {
+                t.$name()
+            }
+
+            pub trait $tr {
+                fn $name(self) -> $ty;
+            }
+
+            impl<'a, T: Copy + $tr> $tr for &'a T {
+                fn $name(self) -> $ty {
+                    (*self).$name()
+                }
+            }
+
+            $(
+                impl $tr for $tys {
+                    #[inline]
+                    fn $name(self) -> $ty {
+                        self as $ty
+                    }
+                }
+            )*
+        )*)
+    }
+
+    as_traits! {
+        (as_i32 AsI32 i32 (char i8 u8 i16 u16 i32 u32))
+        (as_i64 AsI64 i64 (i64 u64))
+        (as_f32 AsF32 f32 (f32))
+        (as_f64 AsF64 f64 (f64))
+    }
+
+    #[derive(Default, Debug)]
+    pub struct IndexSlab {
+        slab: Slab<ResourceIndex>,
+    }
+
+    impl IndexSlab {
+        pub fn insert(&mut self, resource: ResourceIndex) -> u32 {
+            self.slab.insert(resource)
+        }
+
+        pub fn get(&self, slab_idx: u32) -> Result<ResourceIndex, Trap> {
+            match self.slab.get(slab_idx) {
+                Some(idx) => Ok(*idx),
+                None => Err(Trap::Abort),
+            }
+        }
+
+        pub fn remove(&mut self, slab_idx: u32) -> Result<ResourceIndex, Trap> {
+            match self.slab.remove(slab_idx) {
+                Some(idx) => Ok(idx),
+                None => Err(Trap::Abort),
+            }
+        }
+    }
+
+    #[derive(Default, Debug)]
+    pub struct ResourceSlab {
+        slab: Slab<Resource>,
+    }
+
+    #[derive(Debug)]
+    struct Resource {
+        wasm: i32,
+        refcnt: u32,
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    pub struct ResourceIndex(u32);
+
+    impl ResourceSlab {
+        pub fn insert(&mut self, wasm: i32) -> ResourceIndex {
+            ResourceIndex(self.slab.insert(Resource { wasm, refcnt: 1 }))
+        }
+
+        pub fn get(&self, idx: ResourceIndex) -> i32 {
+            self.slab.get(idx.0).unwrap().wasm
+        }
+
+        pub fn clone(&mut self, idx: ResourceIndex) -> Result<(), Trap> {
+            let resource = self.slab.get_mut(idx.0).unwrap();
+            resource.refcnt = match resource.refcnt.checked_add(1) {
+                Some(cnt) => cnt,
+                None => return Err(Trap::Abort),
+            };
+            Ok(())
+        }
+
+        pub fn drop(&mut self, idx: ResourceIndex) -> Option<i32> {
+            let resource = self.slab.get_mut(idx.0).unwrap();
+            assert!(resource.refcnt > 0);
+            resource.refcnt -= 1;
+            if resource.refcnt != 0 {
+                return None;
+            }
+            let resource = self.slab.remove(idx.0).unwrap();
+            Some(resource.wasm)
+        }
     }
 }

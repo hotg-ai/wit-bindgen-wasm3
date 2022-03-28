@@ -1,0 +1,53 @@
+---
+source: codegen/tests/codegen.rs
+expression: record
+---
+pub mod record {
+    #[allow(unused_imports)]
+    use wit_bindgen_wasm3::rt::{anyhow, wasm3};
+    #[derive(Clone)]
+    pub struct Foo<'a> {
+        pub bar: &'a str,
+    }
+    impl<'a> std::fmt::Debug for Foo<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("Foo").field("bar", &self.bar).finish()
+        }
+    }
+    pub trait Record: Sized {
+        fn start(&mut self, value: Foo<'_>);
+    }
+
+    pub fn register<U>(
+        module: &wit_bindgen_wasm3::rt::wasm3::Module<'_>,
+        state: U,
+    ) -> wit_bindgen_wasm3::rt::wasm3::error::Result<()>
+    where
+        U: Record + Send + Sync + 'static,
+    {
+        use wit_bindgen_wasm3::rt::get_memory;
+        let state = std::sync::Arc::new(std::sync::Mutex::new(state));
+        {
+            let state = std::sync::Arc::clone(&state);
+            module.link_closure(
+                "record",
+                "start",
+                move |mut caller: wit_bindgen_wasm3::rt::wasm3::CallContext,
+                      (arg0, arg1): (i32, i32)| {
+                    let memory = unsafe { &*caller.memory_mut() };
+                    let mut _bc = wit_bindgen_wasm3::BorrowChecker::new(memory);
+                    let state = state.lock().expect("lock was poisoned");
+                    let ptr0 = arg0;
+                    let len0 = arg1;
+                    let param0 = Foo {
+                        bar: _bc.slice_str(ptr0, len0)?,
+                    };
+                    state.start(param0);
+                    Ok(())
+                },
+            )?;
+        }
+        Ok(())
+    }
+}
+

@@ -1,0 +1,9 @@
+---
+source: codegen/tests/codegen.rs
+expression: empty
+---
+pub mod empty {
+    #[allow(unused_imports)]
+    use wit_bindgen_wasm3::rt::{anyhow, wasm3};
+}
+
